@@ -49,7 +49,7 @@ export default function ItemListLayout({ filter }: props) {
         fetchDrivers(),
         fetchAssignedDrivers(),
         fetchPositions(),
-      ]);
+      ]);   
       setDevices(d);
       setDrivers(dr);
       setAssigned(a);
@@ -113,7 +113,7 @@ export default function ItemListLayout({ filter }: props) {
   }, [events]);
 
   return (
-    devices.length > 0 && drivers.length > 0 && assigned.length > 0 ? (
+    devices.length > 0 || drivers.length > 0 || assigned.length > 0 ? (
       devices
         .filter(device =>
           device.name?.toLowerCase().includes(filter?.toLowerCase() || "")

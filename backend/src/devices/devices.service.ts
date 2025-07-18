@@ -10,6 +10,8 @@ export class DevicesService {
     private readonly traccarApiUrl = process.env.My_Ip;
     private readonly traccarUser = process.env.TRACCAR_USER;
     private readonly traccarPass = process.env.TRACCAR_PASS;
+    private readonly monitorUser = process.env.TRACCAR_MONITOR_USER;
+    private readonly monitorPass = process.env.TRACCAR_MONITOR_PASS;
 
     private buildAuthHeaders(email: string, password: string) {
         return {
@@ -24,7 +26,7 @@ export class DevicesService {
 
             // Obtener todos los dispositivos del usuario autenticado
             const response = await axios.get(`${this.traccarApiUrl}/devices`, { headers });
-            
+
             // Buscar el dispositivo con el ID solicitado
             const device = response.data.find((d: any) => d.id === deviceId);
 
@@ -39,13 +41,110 @@ export class DevicesService {
         }
     }
 
+    async sincronizeDevicesToAduana(aduanaId: number, aduanaUser: string, aduanaPass: string) {
+        const headers = this.buildAuthHeaders(this.monitorUser!, this.monitorPass!);
+        const aduanaHeaders = this.buildAuthHeaders(aduanaUser, aduanaPass);
+
+        try {
+            // 1️⃣ Obtener dispositivos del monitor y aduana
+            const [deviceRes, aduanaDeviceRes] = await Promise.all([
+                axios.get(`${this.traccarApiUrl}/devices`, { headers }),
+                axios.get(`${this.traccarApiUrl}/devices`, { headers: aduanaHeaders })
+            ]);
+            const devices = deviceRes.data;
+            const aduanaDevices = aduanaDeviceRes.data;
+
+            const monitorDeviceIds = new Set(devices.map((d: any) => d.id));
+            const aduanaDeviceIds = new Set(aduanaDevices.map((d: any) => d.id));
+
+            const noAsignadosDispositivos = devices.filter((d: any) => !aduanaDeviceIds.has(d.id));
+            const yaAsignadosDispositivos = aduanaDevices.filter((d: any) => !monitorDeviceIds.has(d.id));
+
+            await Promise.all(
+                noAsignadosDispositivos.map((d: any) =>
+                    axios.post(`${this.traccarApiUrl}/permissions`, {
+                        userId: aduanaId,
+                        deviceId: d.id
+                    }, { headers })
+                )
+            );
+
+            await Promise.all(
+                yaAsignadosDispositivos.map((d: any) =>
+                    axios.delete(`${this.traccarApiUrl}/permissions`, {
+                        headers,
+                        data: {
+                            userId: aduanaId,
+                            deviceId: d.id
+                        }
+                    })
+                )
+            );
+
+            // 2️⃣ Obtener conductores del monitor y aduana
+            const [driverRes, aduanaDriverRes] = await Promise.all([
+                axios.get(`${this.traccarApiUrl}/drivers`, { headers }),
+                axios.get(`${this.traccarApiUrl}/drivers`, { headers: aduanaHeaders })
+            ]);
+            const drivers = driverRes.data;
+            const aduanaDrivers = aduanaDriverRes.data;
+
+            const monitorDriverIds = new Set(drivers.map((d: any) => d.id));
+            const aduanaDriverIds = new Set(aduanaDrivers.map((d: any) => d.id));
+
+            const noAsignadosConductores = drivers.filter((d: any) => !aduanaDriverIds.has(d.id));
+            const yaAsignadosConductores = aduanaDrivers.filter((d: any) => !monitorDriverIds.has(d.id));
+
+            await Promise.all(
+                noAsignadosConductores.map((d: any) =>
+                    axios.post(`${this.traccarApiUrl}/permissions`, {
+                        userId: aduanaId,
+                        driverId: d.id
+                    }, { headers })
+                )
+            );
+
+            await Promise.all(
+                yaAsignadosConductores.map((d: any) =>
+                    axios.delete(`${this.traccarApiUrl}/permissions`, {
+                        headers,
+                        data: {
+                            userId: aduanaId,
+                            driverId: d.id
+                        }
+                    })
+                )
+            );
+
+            return {
+                dispositivosAgregados: noAsignadosDispositivos.map((d: any) => d.name),
+                dispositivosEliminados: yaAsignadosDispositivos.map((d: any) => d.name),
+                conductoresAgregados: noAsignadosConductores.map((d: any) => d.name),
+                conductoresEliminados: yaAsignadosConductores.map((d: any) => d.name),
+            };
+
+        } catch (error) {
+            console.error('Error al sincronizar dispositivos o conductores con aduana:', error);
+            throw new HttpException('Error sincronizando con aduana', HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+
+
     async getDevicesFromTraccar(req: Request) {
         const userData = this.authService.getDataFromCookie(req);
         if (!userData) {
             throw new HttpException('No session active', HttpStatus.UNAUTHORIZED);
         }
         try {
-            const { emailUser, passwordUser } = userData;
+            const { emailUser, passwordUser, idUser } = userData;
+            if (emailUser == 'l.lara@aduanas.gob.do') {
+                try {
+                    this.sincronizeDevicesToAduana(idUser, emailUser, passwordUser)
+                } catch (error) {
+                    throw new HttpException('Error asignando los dispositos al usuario aduana', HttpStatus.BAD_REQUEST)
+                }
+            }
             const headers = this.buildAuthHeaders(emailUser, passwordUser);
 
             // Realizar la solicitud GET a la API de Traccar para obtener los dispositivos
@@ -194,11 +293,6 @@ export class DevicesService {
             throw new HttpException('Error, no estas autenticado', HttpStatus.UNAUTHORIZED)
         }
         try {
-            const { admin } = userData;
-            if (!admin) {
-                throw new HttpException('Error, no estas autorizado para esto', HttpStatus.UNAUTHORIZED)
-            }
-
             // 1️⃣ Traer dispositivos del usuario autenticado
             const userDevices = await this.getDevicesFromTraccar(req);
             // 2️⃣ Traer todos los dispositivos admin
@@ -221,10 +315,6 @@ export class DevicesService {
             throw new HttpException('Error, no estas autenticado', HttpStatus.UNAUTHORIZED)
         }
         try {
-            const { admin } = userData;
-            if (!admin) {
-                throw new HttpException('Error, no estas autorizado para esto', HttpStatus.UNAUTHORIZED)
-            }
             // Traer conductores de traccar
             const userDrivers = await this.getDriversFromTraccar(req)
             // Traer todos los conductores de admin

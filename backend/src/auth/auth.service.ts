@@ -106,6 +106,9 @@ export class AuthService {
                     sessionCookie, // Cookie de sesión de Traccar
                 ]
                 );
+
+                console.log("Cookies set:", res.getHeaders()['set-cookie']);
+
                 return {
                     message: 'Autenticación exitosa',
                     user: response.data,

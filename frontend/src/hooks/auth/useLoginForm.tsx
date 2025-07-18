@@ -16,7 +16,7 @@ export default function useLoginForm() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    sethandleInputs((prev : InputState) => ({ ...prev, [name]: value }));
+    sethandleInputs((prev: InputState) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -30,11 +30,8 @@ export default function useLoginForm() {
       localStorage.setItem("token", loginResponse.token);
       localStorage.setItem("rol", loginResponse.user.administrator);
       setsuccessMessage("✅ Autenticación completa");
-      if (loginResponse.user.administrator) {
-        router.push("/tracking_view");
-      }
-      
-      
+      router.push("/tracking_view");
+
     } catch (error: any) {
       if (axios.isAxiosError(error)) {
         console.log(error.response?.data);
